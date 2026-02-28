@@ -1,67 +1,54 @@
 package com.health.medicare.security;
 
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.stereotype.Component;
 
 import java.security.Key;
 import java.util.Date;
 
-/**
- * JWT Utility Class - Generates and validates JWT tokens
- * CHANGE: Added this entire class for JWT support
- * WHY: Frontend needs real JWT tokens for authenticated API calls
- */
 @Component
 public class JwtUtil {
 
-    // Secret key for signing tokens (keep this secure in production!)
-    private final Key SECRET_KEY = Keys.secretKeyFor(SignatureAlgorithm.HS256);
+    private static final String SECRET = "medicare-super-secret-key-must-be-32-chars-minimum-2024";
+    private static final long EXPIRATION = 86400000; // 24 hours
 
-    // Token validity: 24 hours (in milliseconds)
-    private final long EXPIRATION_TIME = 86400000; // 24 hours
+    private Key getKey() {
+        return Keys.hmacShaKeyFor(SECRET.getBytes());
+    }
 
-    /**
-     * Generate JWT token for a user
-     * @param email - user's email
-     * @param role - user's role (DOCTOR, PATIENT, STAFF)
-     * @return JWT token string
-     */
     public String generateToken(String email, String role) {
         return Jwts.builder()
-                .setSubject(email)                           // Store email in token
-                .claim("role", role)                         // Store role in token
-                .setIssuedAt(new Date())                     // Token creation time
-                .setExpiration(new Date(System.currentTimeMillis() + EXPIRATION_TIME))
-                .signWith(SECRET_KEY)                        // Sign with secret key
+                .setSubject(email)
+                .claim("role", role)
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + EXPIRATION))
+                .signWith(getKey(), SignatureAlgorithm.HS256)
                 .compact();
     }
 
-    /**
-     * Extract email from JWT token
-     */
     public String extractEmail(String token) {
-        return Jwts.parserBuilder()
-                .setSigningKey(SECRET_KEY)
-                .build()
-                .parseClaimsJws(token)
-                .getBody()
-                .getSubject();
+        return getClaims(token).getSubject();
     }
 
-    /**
-     * Validate JWT token
-     */
-    public boolean validateToken(String token) {
+    public String extractRole(String token) {
+        return getClaims(token).get("role", String.class);
+    }
+
+    public boolean isTokenValid(String token) {
         try {
-            Jwts.parserBuilder()
-                    .setSigningKey(SECRET_KEY)
-                    .build()
-                    .parseClaimsJws(token);
+            getClaims(token);
             return true;
         } catch (Exception e) {
             return false;
         }
+    }
+
+    private Claims getClaims(String token) {
+        return Jwts.parserBuilder()
+                .setSigningKey(getKey())
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
     }
 }

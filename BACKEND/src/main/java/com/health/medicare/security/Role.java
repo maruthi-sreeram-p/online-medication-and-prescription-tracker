@@ -1,8 +1,8 @@
 package com.health.medicare.security;
 
 public enum Role {
-    ADMIN,
     DOCTOR,
+    PATIENT,
     STAFF,
-    PATIENT
+    ADMIN
 }

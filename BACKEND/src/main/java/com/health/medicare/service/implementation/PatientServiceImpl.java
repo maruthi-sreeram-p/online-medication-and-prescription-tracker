@@ -1,90 +1,104 @@
 package com.health.medicare.service.implementation;
 
-import com.health.medicare.dto.request.PatientRequestDto;
 import com.health.medicare.dto.response.PatientResponseDto;
-import com.health.medicare.model.Patient;
-import com.health.medicare.model.Ward;
-import com.health.medicare.repository.PatientRepository;
-import com.health.medicare.repository.WardRepository;
+import com.health.medicare.dto.response.PrescriptionResponseDto;
+import com.health.medicare.dto.response.PrescriptionMedicineResponseDto;
+import com.health.medicare.model.*;
+import com.health.medicare.repository.*;
 import com.health.medicare.service.PatientService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-
 import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
+@RequiredArgsConstructor
 public class PatientServiceImpl implements PatientService {
 
     private final PatientRepository patientRepository;
-    private final WardRepository wardRepository;
-
-    // Constructor Injection (industry standard)
-    public PatientServiceImpl(PatientRepository patientRepository,
-                              WardRepository wardRepository) {
-        this.patientRepository = patientRepository;
-        this.wardRepository = wardRepository;
-    }
+    private final DoctorRepository doctorRepository;
+    private final PatientRequestRepository patientRequestRepository;
+    private final PrescriptionRepository prescriptionRepository;
 
     @Override
-    public PatientResponseDto createPatient(PatientRequestDto dto) {
-
-        // 1️⃣ Fetch Ward (validation)
-        Ward ward = wardRepository.findById(dto.getWardId())
-                .orElseThrow(() -> new RuntimeException("Ward not found"));
-
-        // 2️⃣ Map DTO → Entity
-        Patient patient = new Patient();
-        patient.setName(dto.getName());
-        patient.setAge(dto.getAge());
-        patient.setGender(dto.getGender());
-        patient.setPhone(dto.getPhone());
-        patient.setAddress(dto.getAddress());
-        patient.setWard(ward);
-
-        // 3️⃣ Save Entity
-        Patient savedPatient = patientRepository.save(patient);
-
-        // 4️⃣ Map Entity → Response DTO
-        return new PatientResponseDto(
-                savedPatient.getPatientId(),
-                savedPatient.getName(),
-                savedPatient.getAge(),
-                savedPatient.getGender(),
-                savedPatient.getPhone(),
-                ward.getWardName()
-        );
-    }
-
-    @Override
-    public PatientResponseDto getPatientById(Long patientId) {
-
+    public String sendRequestToDoctor(Long patientId, Long doctorId) {
         Patient patient = patientRepository.findById(patientId)
                 .orElseThrow(() -> new RuntimeException("Patient not found"));
+        Doctor doctor = doctorRepository.findById(doctorId)
+                .orElseThrow(() -> new RuntimeException("Doctor not found"));
 
-        return new PatientResponseDto(
-                patient.getPatientId(),
-                patient.getName(),
-                patient.getAge(),
-                patient.getGender(),
-                patient.getPhone(),
-                patient.getWard().getWardName()
-        );
+        boolean alreadyRequested = patientRequestRepository
+                .existsByPatientIdAndDoctorIdAndStatus(patientId, doctorId, "PENDING");
+        if (alreadyRequested) {
+            throw new RuntimeException("Request already sent to this doctor");
+        }
+
+        PatientRequest request = PatientRequest.builder()
+                .patient(patient)
+                .doctor(doctor)
+                .status("PENDING")
+                .build();
+        patientRequestRepository.save(request);
+        return "Request sent successfully";
     }
 
     @Override
-    public List<PatientResponseDto> getAllPatients() {
+    public List<PrescriptionResponseDto> getMyPrescriptions(Long patientId) {
+        List<Prescription> prescriptions = prescriptionRepository
+                .findByPatientIdOrderByCreatedAtDesc(patientId);
 
-        List<Patient> patients = patientRepository.findAll();
+        return prescriptions.stream().map(p -> {
+            List<PrescriptionMedicineResponseDto> medicines = p.getMedicines()
+                    .stream().map(m -> PrescriptionMedicineResponseDto.builder()
+                            .id(m.getId())
+                            .medicineId(m.getMedicine().getId())
+                            .medicineName(m.getMedicine().getName())
+                            .dosage(m.getDosage())
+                            .durationDays(m.getDurationDays())
+                            .frequency(m.getFrequency())
+                            .morningMeal(m.getMorningMeal())
+                            .morningTimeStart(m.getMorningTimeStart())
+                            .morningTimeEnd(m.getMorningTimeEnd())
+                            .afternoonMeal(m.getAfternoonMeal())
+                            .afternoonTimeStart(m.getAfternoonTimeStart())
+                            .afternoonTimeEnd(m.getAfternoonTimeEnd())
+                            .nightMeal(m.getNightMeal())
+                            .nightTimeStart(m.getNightTimeStart())
+                            .nightTimeEnd(m.getNightTimeEnd())
+                            .build())
+                    .collect(Collectors.toList());
 
-        return patients.stream()
-                .map(patient -> new PatientResponseDto(
-                        patient.getPatientId(),
-                        patient.getName(),
-                        patient.getAge(),
-                        patient.getGender(),
-                        patient.getPhone(),
-                        patient.getWard().getWardName()
-                ))
-                .collect(Collectors.toList());
+            return PrescriptionResponseDto.builder()
+                    .id(p.getId())
+                    .doctorId(p.getDoctor().getId())
+                    .doctorName(p.getDoctor().getName())
+                    .patientId(p.getPatient().getId())
+                    .patientName(p.getPatient().getName())
+                    .remarks(p.getRemarks())
+                    .patientCondition(p.getPatientCondition())
+                    .caretakerType(p.getCaretakerType())
+                    .caretakerName(p.getCaretakerName())
+                    .caretakerPhone(p.getCaretakerPhone())
+                    .createdAt(p.getCreatedAt())
+                    .medicines(medicines)
+                    .build();
+        }).collect(Collectors.toList());
+    }
+
+    @Override
+    public PatientResponseDto getMyProfile(Long patientId) {
+        Patient p = patientRepository.findById(patientId)
+                .orElseThrow(() -> new RuntimeException("Patient not found"));
+
+        return PatientResponseDto.builder()
+                .id(p.getId())
+                .name(p.getName())
+                .email(p.getEmail())
+                .phone(p.getPhone())
+                .age(p.getAge())
+                .gender(p.getGender())
+                .bloodGroup(p.getBloodGroup())
+                .status(p.getStatus())
+                .build();
     }
 }

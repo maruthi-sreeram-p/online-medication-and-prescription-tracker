@@ -3,34 +3,37 @@ package com.health.medicare.controller;
 import com.health.medicare.dto.request.PrescriptionRequestDto;
 import com.health.medicare.dto.response.PrescriptionResponseDto;
 import com.health.medicare.service.PrescriptionService;
-import org.springframework.security.access.prepost.PreAuthorize;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
 import java.util.List;
 
 @RestController
 @RequestMapping("/api/prescriptions")
+@RequiredArgsConstructor
 public class PrescriptionController {
 
     private final PrescriptionService prescriptionService;
 
-    public PrescriptionController(PrescriptionService prescriptionService) {
-        this.prescriptionService = prescriptionService;
+    // POST /api/prescriptions/{doctorId}
+    @PostMapping("/{doctorId}")
+    public ResponseEntity<PrescriptionResponseDto> createPrescription(
+            @PathVariable Long doctorId,
+            @RequestBody PrescriptionRequestDto request) {
+        return ResponseEntity.ok(prescriptionService.createPrescription(doctorId, request));
     }
 
-    // CREATE PRESCRIPTION → DOCTOR
-    @PreAuthorize("hasRole('DOCTOR')")
-    @PostMapping
-    public PrescriptionResponseDto createPrescription(
-            @RequestBody PrescriptionRequestDto dto) {
-        return prescriptionService.createPrescription(dto);
+    // GET /api/prescriptions/doctor/{doctorId}
+    @GetMapping("/doctor/{doctorId}")
+    public ResponseEntity<List<PrescriptionResponseDto>> getDoctorPrescriptions(
+            @PathVariable Long doctorId) {
+        return ResponseEntity.ok(prescriptionService.getDoctorPrescriptions(doctorId));
     }
 
-    // VIEW PRESCRIPTIONS → DOCTOR, STAFF, PATIENT
-    @PreAuthorize("hasAnyRole('DOCTOR','STAFF','PATIENT')")
+    // GET /api/prescriptions/patient/{patientId}
     @GetMapping("/patient/{patientId}")
-    public List<PrescriptionResponseDto> getPrescriptionsByPatient(
+    public ResponseEntity<List<PrescriptionResponseDto>> getPatientPrescriptions(
             @PathVariable Long patientId) {
-        return prescriptionService.getPrescriptionsByPatient(patientId);
+        return ResponseEntity.ok(prescriptionService.getPatientPrescriptions(patientId));
     }
 }

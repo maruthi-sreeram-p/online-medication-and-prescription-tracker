@@ -1,16 +1,24 @@
 package com.health.medicare.dto.response;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
+import lombok.*;
 
 @Data
+@Builder
+@NoArgsConstructor
 @AllArgsConstructor
 public class PatientResponseDto {
-
-    private Long patientId;
+    private Long id;
     private String name;
-    private int age;
-    private String gender;
+    private String email;
     private String phone;
-    private String wardName;
+    private Integer age;
+    private String gender;
+    private String bloodGroup;
+    private String status;
+    private Double adherencePercentage;
+    private Integer totalDays;
+    private Integer completedDays;
+    private String caretakerType;
+    private String caretakerName;
+    private String condition;
 }

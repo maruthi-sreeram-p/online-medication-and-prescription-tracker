@@ -2,114 +2,118 @@ package com.health.medicare.service.implementation;
 
 import com.health.medicare.dto.request.PrescriptionRequestDto;
 import com.health.medicare.dto.request.PrescriptionMedicineRequestDto;
-import com.health.medicare.dto.response.PrescriptionMedicineResponseDto;
 import com.health.medicare.dto.response.PrescriptionResponseDto;
-import com.health.medicare.exception.ResourceNotFoundException;
+import com.health.medicare.dto.response.PrescriptionMedicineResponseDto;
 import com.health.medicare.model.*;
 import com.health.medicare.repository.*;
 import com.health.medicare.service.PrescriptionService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-
-import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
+@RequiredArgsConstructor
 public class PrescriptionServiceImpl implements PrescriptionService {
 
+    private final PrescriptionRepository prescriptionRepository;
+    private final PrescriptionMedicineRepository prescriptionMedicineRepository;
     private final DoctorRepository doctorRepository;
     private final PatientRepository patientRepository;
-    private final PrescriptionRepository prescriptionRepository;
     private final MedicineRepository medicineRepository;
-    private final PrescriptionMedicineRepository prescriptionMedicineRepository;
 
-    public PrescriptionServiceImpl(DoctorRepository doctorRepository,
-                                   PatientRepository patientRepository,
-                                   PrescriptionRepository prescriptionRepository,
-                                   MedicineRepository medicineRepository,
-                                   PrescriptionMedicineRepository prescriptionMedicineRepository) {
-        this.doctorRepository = doctorRepository;
-        this.patientRepository = patientRepository;
-        this.prescriptionRepository = prescriptionRepository;
-        this.medicineRepository = medicineRepository;
-        this.prescriptionMedicineRepository = prescriptionMedicineRepository;
+    @Override
+    public PrescriptionResponseDto createPrescription(Long doctorId, PrescriptionRequestDto request) {
+        Doctor doctor = doctorRepository.findById(doctorId)
+                .orElseThrow(() -> new RuntimeException("Doctor not found"));
+        Patient patient = patientRepository.findById(request.getPatientId())
+                .orElseThrow(() -> new RuntimeException("Patient not found"));
+
+        Prescription prescription = Prescription.builder()
+                .doctor(doctor)
+                .patient(patient)
+                .remarks(request.getRemarks())
+                .patientCondition(request.getPatientCondition())
+                .caretakerType(request.getCaretakerType())
+                .caretakerName(request.getCaretakerName())
+                .caretakerPhone(request.getCaretakerPhone())
+                .build();
+
+        Prescription saved = prescriptionRepository.save(prescription);
+
+        List<PrescriptionMedicine> medicines = new ArrayList<>();
+        for (PrescriptionMedicineRequestDto medDto : request.getMedicines()) {
+            Medicine medicine = medicineRepository.findById(medDto.getMedicineId())
+                    .orElseThrow(() -> new RuntimeException("Medicine not found"));
+
+            PrescriptionMedicine pm = PrescriptionMedicine.builder()
+                    .prescription(saved)
+                    .medicine(medicine)
+                    .dosage(medDto.getDosage())
+                    .durationDays(medDto.getDurationDays())
+                    .frequency(medDto.getFrequency())
+                    .morningMeal(medDto.getMorningMeal())
+                    .morningTimeStart(medDto.getMorningTimeStart())
+                    .morningTimeEnd(medDto.getMorningTimeEnd())
+                    .afternoonMeal(medDto.getAfternoonMeal())
+                    .afternoonTimeStart(medDto.getAfternoonTimeStart())
+                    .afternoonTimeEnd(medDto.getAfternoonTimeEnd())
+                    .nightMeal(medDto.getNightMeal())
+                    .nightTimeStart(medDto.getNightTimeStart())
+                    .nightTimeEnd(medDto.getNightTimeEnd())
+                    .build();
+            medicines.add(prescriptionMedicineRepository.save(pm));
+        }
+
+        List<PrescriptionMedicineResponseDto> medicineResponses = medicines.stream()
+                .map(m -> PrescriptionMedicineResponseDto.builder()
+                        .id(m.getId())
+                        .medicineId(m.getMedicine().getId())
+                        .medicineName(m.getMedicine().getName())
+                        .dosage(m.getDosage())
+                        .durationDays(m.getDurationDays())
+                        .frequency(m.getFrequency())
+                        .build())
+                .collect(Collectors.toList());
+
+        return PrescriptionResponseDto.builder()
+                .id(saved.getId())
+                .doctorId(doctor.getId())
+                .doctorName(doctor.getName())
+                .patientId(patient.getId())
+                .patientName(patient.getName())
+                .remarks(saved.getRemarks())
+                .patientCondition(saved.getPatientCondition())
+                .caretakerType(saved.getCaretakerType())
+                .createdAt(saved.getCreatedAt())
+                .medicines(medicineResponses)
+                .build();
     }
 
     @Override
-    public PrescriptionResponseDto createPrescription(PrescriptionRequestDto dto) {
-
-        Doctor doctor = doctorRepository.findById(dto.getDoctorId())
-                .orElseThrow(() -> new ResourceNotFoundException("Doctor not found"));
-
-        Patient patient = patientRepository.findById(dto.getPatientId())
-                .orElseThrow(() -> new ResourceNotFoundException("Patient not found"));
-
-        Prescription prescription = new Prescription();
-        prescription.setDoctor(doctor);
-        prescription.setPatient(patient);
-        prescription.setPrescriptionDate(LocalDate.now());
-        prescription.setRemarks(dto.getRemarks());
-
-        Prescription savedPrescription = prescriptionRepository.save(prescription);
-
-        List<PrescriptionMedicineResponseDto> medicineResponses =
-                dto.getMedicines().stream().map(medDto -> {
-
-                    Medicine medicine = medicineRepository.findById(medDto.getMedicineId())
-                            .orElseThrow(() -> new ResourceNotFoundException("Medicine not found"));
-
-                    PrescriptionMedicine pm = new PrescriptionMedicine();
-                    pm.setPrescription(savedPrescription);
-                    pm.setMedicine(medicine);
-                    pm.setDosage(medDto.getDosage());
-                    pm.setFrequency(medDto.getFrequency());
-                    pm.setDurationDays(medDto.getDurationDays());
-
-                    prescriptionMedicineRepository.save(pm);
-
-                    return new PrescriptionMedicineResponseDto(
-                            medicine.getMedicineName(),
-                            pm.getDosage(),
-                            pm.getFrequency(),
-                            pm.getDurationDays()
-                    );
-                }).collect(Collectors.toList());
-
-        return new PrescriptionResponseDto(
-                savedPrescription.getPrescriptionId(),
-                savedPrescription.getPrescriptionDate(),
-                doctor.getName(),
-                patient.getName(),
-                medicineResponses
-        );
-    }
-
-    @Override
-    public List<PrescriptionResponseDto> getPrescriptionsByPatient(Long patientId) {
-
-        return prescriptionRepository.findByPatientPatientId(  patientId)
-
-                .stream()
-                .map(p -> new PrescriptionResponseDto(
-                        p.getPrescriptionId(),
-                        p.getPrescriptionDate(),
-                        p.getDoctor().getName(),
-                        p.getPatient().getName(),
-                        p.getPrescriptionMedicines()
-                                .stream()
-                                .map(pm -> new PrescriptionMedicineResponseDto(
-                                        pm.getMedicine().getMedicineName(),
-                                        pm.getDosage(),
-                                        pm.getFrequency(),
-                                        pm.getDurationDays()
-                                ))
-                                .collect(Collectors.toList())
-                ))
+    public List<PrescriptionResponseDto> getDoctorPrescriptions(Long doctorId) {
+        return prescriptionRepository.findByDoctorId(doctorId)
+                .stream().map(p -> PrescriptionResponseDto.builder()
+                        .id(p.getId())
+                        .patientId(p.getPatient().getId())
+                        .patientName(p.getPatient().getName())
+                        .remarks(p.getRemarks())
+                        .createdAt(p.getCreatedAt())
+                        .build())
                 .collect(Collectors.toList());
     }
 
     @Override
-    public PrescriptionResponseDto getPrescriptionById(Long id) {
-        return null;
+    public List<PrescriptionResponseDto> getPatientPrescriptions(Long patientId) {
+        return prescriptionRepository.findByPatientIdOrderByCreatedAtDesc(patientId)
+                .stream().map(p -> PrescriptionResponseDto.builder()
+                        .id(p.getId())
+                        .doctorId(p.getDoctor().getId())
+                        .doctorName(p.getDoctor().getName())
+                        .remarks(p.getRemarks())
+                        .createdAt(p.getCreatedAt())
+                        .build())
+                .collect(Collectors.toList());
     }
 }

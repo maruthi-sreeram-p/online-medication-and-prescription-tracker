@@ -1,22 +1,20 @@
 package com.health.medicare.dto.request;
 
-import jakarta.validation.constraints.*;
-import lombok.Data;
+import lombok.*;
 
 @Data
 public class PrescriptionMedicineRequestDto {
-
-    @NotNull(message = "Medicine ID is required")
     private Long medicineId;
-
-    @NotBlank(message = "Dosage is required")
     private String dosage;
-
-    @NotBlank(message = "Frequency is required")
+    private Integer durationDays;
     private String frequency;
-
-    @Min(value = 1, message = "Duration must be at least 1 day")
-    private int durationDays;
-
-    // getters & setters
+    private String morningMeal;
+    private String morningTimeStart;
+    private String morningTimeEnd;
+    private String afternoonMeal;
+    private String afternoonTimeStart;
+    private String afternoonTimeEnd;
+    private String nightMeal;
+    private String nightTimeStart;
+    private String nightTimeEnd;
 }

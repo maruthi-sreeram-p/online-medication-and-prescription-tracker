@@ -1,16 +1,22 @@
 package com.health.medicare.model;
 
 import jakarta.persistence.*;
-import lombok.Data;
+import lombok.*;
 
 @Entity
+@Table(name = "medicines")
 @Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Medicine {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long medicineId;
+    private Long id;
 
-    private String medicineName;
-    private String manufacturer;
+    @Column(nullable = false)
+    private String name;
+
+    private String description;
 }

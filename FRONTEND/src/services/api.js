@@ -1,14 +1,18 @@
 import axios from 'axios';
 
+/**
+ * API SERVICE
+ * Purpose: Axios instance for all backend API calls
+ * Base URL: http://localhost:8321/api
+ */
 const api = axios.create({
-  // Change this from the fake URL to your actual local backend port
   baseURL: 'http://localhost:8321/api',
   headers: {
-    'Content-Type': 'application/json',
-  },
+    'Content-Type': 'application/json'
+  }
 });
 
-// Interceptor to add JWT token to every request
+// Add JWT token to every request automatically
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
   if (token) {

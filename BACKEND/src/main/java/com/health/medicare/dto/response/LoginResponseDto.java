@@ -1,16 +1,20 @@
 package com.health.medicare.dto.response;
 
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
-/**
- * Login Response DTO
- * Structure matches frontend expectations:
- * { "token": "eyJhbGci...", "role": "DOCTOR" }
- */
 @Data
+@Builder
+@NoArgsConstructor
 @AllArgsConstructor
 public class LoginResponseDto {
-    private String token;  // JWT token
-    private String role;   // DOCTOR, PATIENT, STAFF
+
+    private String token;
+    private String role;
+    private Long userId;
+    private String name;
+    private String email;
+    private String status;
 }
