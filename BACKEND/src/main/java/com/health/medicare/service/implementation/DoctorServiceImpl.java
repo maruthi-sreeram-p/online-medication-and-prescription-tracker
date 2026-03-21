@@ -9,7 +9,9 @@ import com.health.medicare.repository.*;
 import com.health.medicare.service.DoctorService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -94,6 +96,29 @@ public class DoctorServiceImpl implements DoctorService {
                 .gender(p.getGender())
                 .bloodGroup(p.getBloodGroup())
                 .adherencePercentage(Math.round(adherence * 10.0) / 10.0)
+                .build();
+    }
+
+    @Override
+    public DoctorResponseDto updateProfile(Long doctorId, Map<String, String> updates) {
+        Doctor doctor = doctorRepository.findById(doctorId)
+                .orElseThrow(() -> new RuntimeException("Doctor not found"));
+
+        if (updates.containsKey("name")) doctor.setName(updates.get("name"));
+        if (updates.containsKey("phone")) doctor.setPhone(updates.get("phone"));
+        if (updates.containsKey("specialization")) doctor.setSpecialization(updates.get("specialization"));
+        if (updates.containsKey("hospitalName")) doctor.setHospitalName(updates.get("hospitalName"));
+
+        doctorRepository.save(doctor);
+
+        return DoctorResponseDto.builder()
+                .id(doctor.getId())
+                .name(doctor.getName())
+                .email(doctor.getEmail())
+                .phone(doctor.getPhone())
+                .specialization(doctor.getSpecialization())
+                .hospitalName(doctor.getHospitalName())
+                .status(doctor.getStatus())
                 .build();
     }
 }

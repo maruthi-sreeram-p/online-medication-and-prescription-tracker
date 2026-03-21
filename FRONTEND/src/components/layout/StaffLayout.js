@@ -2,18 +2,12 @@ import React, { useState } from 'react';
 import {
   Box, Drawer, AppBar, Toolbar, List, Typography,
   ListItem, ListItemButton, ListItemIcon, ListItemText,
-  Avatar, Divider, IconButton, Chip
+  Avatar, Divider, IconButton
 } from '@mui/material';
 import {
   Dashboard, Menu, Logout, LocalHospital
 } from '@mui/icons-material';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
-
-/**
- * STAFF LAYOUT
- * Purpose: Sidebar for staff pages
- * Theme: Orange (different from Doctor blue and Patient green)
- */
 
 const drawerWidth = 280;
 
@@ -21,6 +15,14 @@ const StaffLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  const staffName = localStorage.getItem('name') || 'Staff';
+  const initials = staffName
+    .split(' ')
+    .filter(Boolean)
+    .map(n => n[0].toUpperCase())
+    .join('')
+    .slice(0, 2);
 
   const menuItems = [
     { text: 'Dashboard', icon: <Dashboard />, path: '/staff/dashboard' },
@@ -41,21 +43,19 @@ const StaffLayout = () => {
 
       <Divider />
 
-      {/* Staff Profile Card */}
+      {/* Staff Profile Card — dynamic from localStorage */}
       <Box sx={{ p: 3, bgcolor: '#fff8e1', m: 2, borderRadius: 3, border: '1px solid #ffe082' }}>
         <Box display="flex" alignItems="center" gap={2}>
           <Avatar sx={{ bgcolor: '#f57f17', width: 50, height: 50, fontWeight: 'bold' }}>
-            NP
+            {initials}
           </Avatar>
           <Box>
             <Typography variant="subtitle1" fontWeight="bold">
-              Nurse Priya
+              {staffName}
             </Typography>
-            <Chip
-              label="🌅 Morning Shift"
-              size="small"
-              sx={{ bgcolor: '#ff8f00', color: 'white', fontWeight: 700, mt: 0.3 }}
-            />
+            <Typography variant="caption" sx={{ color: '#f57f17', fontWeight: 600 }}>
+              Staff
+            </Typography>
           </Box>
         </Box>
       </Box>
@@ -93,6 +93,9 @@ const StaffLayout = () => {
         <ListItemButton
           onClick={() => {
             localStorage.removeItem('token');
+            localStorage.removeItem('role');
+            localStorage.removeItem('userId');
+            localStorage.removeItem('name');
             navigate('/login');
           }}
           sx={{

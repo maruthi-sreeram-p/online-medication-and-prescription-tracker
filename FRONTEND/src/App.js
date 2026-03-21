@@ -22,11 +22,19 @@ import PatientDashboard from './pages/patient/PatientDashboard';
 import PatientMedications from './pages/patient/PatientMedications';
 import PatientPrescriptions from './pages/patient/PatientPrescriptions';
 import PatientProfile from './pages/patient/PatientProfile';
-import FindDoctors from './pages/patient/FindDoctors';   // ← NEW
+import FindDoctors from './pages/patient/FindDoctors';
 
 // Staff imports
 import StaffLayout from './components/layout/StaffLayout';
 import StaffDashboard from './pages/staff/StaffDashboard';
+
+// Admin imports
+import AdminLayout from './components/layout/AdminLayout';
+import AdminDashboard from './pages/admin/AdminDashboard';
+import AdminProfile from './pages/admin/AdminProfile';
+import ManageDoctors from './pages/admin/ManageDoctors';
+import ManagePatients from './pages/admin/ManagePatients';
+import ManageStaff from './pages/admin/ManageStaff';
 
 function App() {
   return (
@@ -55,7 +63,7 @@ function App() {
             <Route path="dashboard" element={<PatientDashboard />} />
             <Route path="medications" element={<PatientMedications />} />
             <Route path="prescriptions" element={<PatientPrescriptions />} />
-            <Route path="find-doctors" element={<FindDoctors />} />  {/* ← NEW */}
+            <Route path="find-doctors" element={<FindDoctors />} />
             <Route path="profile" element={<PatientProfile />} />
           </Route>
 
@@ -63,6 +71,16 @@ function App() {
           <Route path="/staff" element={<StaffLayout />}>
             <Route path="dashboard" element={<StaffDashboard />} />
           </Route>
+
+          {/* ✅ Admin Routes — was completely missing */}
+          <Route path="/admin" element={<AdminLayout />}>
+            <Route path="dashboard" element={<AdminDashboard />} />
+            <Route path="profile" element={<AdminProfile />} />
+            <Route path="doctors" element={<ManageDoctors />} />
+            <Route path="patients" element={<ManagePatients />} />
+            <Route path="staff" element={<ManageStaff />} />
+          </Route>
+
         </Routes>
       </Router>
     </ThemeProvider>

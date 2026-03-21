@@ -1,165 +1,157 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Box, Typography, TextField, Button, Avatar,
-  IconButton, Paper, Chip, CircularProgress
+  IconButton, CircularProgress, Paper
 } from '@mui/material';
-import { Send, SmartToy, Person, Close, AutoAwesome } from '@mui/icons-material';
+import { Close, Send, SmartToy, Person } from '@mui/icons-material';
 
 /**
  * AI CHAT COMPONENT
- * Purpose: Role-based AI assistant for all users
- * Roles: Admin, Doctor, Patient, Staff
+ *
+ * Connects to the Python FastAPI ai-service running at http://localhost:8000
+ * Endpoint: POST /api/chat/message
+ * Body: { message: string, user_id: string }
+ * Response: { reply: string }
+ *
+ * Usage in PatientDashboard.js (already wired up):
+ *   import AiChat from '../../components/common/AiChat';
+ *   <AiChat role="PATIENT" onClose={() => setShowAI(false)} />
  */
-const AiChat = ({ role = 'Patient', onClose }) => {
+const AiChat = ({ role, onClose }) => {
+
+  const patientId = localStorage.getItem('userId');
+  const patientName = localStorage.getItem('name') || 'Patient';
 
   const [messages, setMessages] = useState([
     {
       id: 1,
-      from: 'ai',
-      text: getRoleWelcome(role)
+      from: 'bot',
+      text: `Hi ${patientName}! 👋 I'm your MediCare AI Assistant. I can help you with:\n\n• Your medication schedule\n• Dosage and timing questions\n• Side effects information\n• Drug interaction checks\n\nHow can I help you today?`
     }
   ]);
 
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const bottomRef = useRef(null);
 
-  // Auto scroll to bottom
+  // Auto-scroll to latest message
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Welcome message based on role
-  function getRoleWelcome(role) {
-    if (role === 'DOCTOR') return "👨‍⚕️ Hello Doctor! I can help you with clinical summaries, drug interactions, and patient insights. How can I assist?";
-    if (role === 'PATIENT') return "😊 Hello! I'm your personal health assistant. I can explain your medicines, give health tips, and answer your questions simply!";
-    if (role === 'STAFF') return "🏥 Hello! I can help you with patient care reminders, medicine schedules, and shift-related queries!";
-    if (role === 'ADMIN') return "🛡️ Hello Admin! I can help with system queries, user management insights, and data reports!";
-    return "Hello! How can I help you today?";
-  }
+  const sendMessage = async () => {
+    const text = input.trim();
+    if (!text || loading) return;
 
-  // Get role color
-  const getRoleColor = (role) => {
-    if (role === 'DOCTOR') return '#0062ff';
-    if (role === 'PATIENT') return '#2e7d32';
-    if (role === 'STAFF') return '#f57f17';
-    if (role === 'ADMIN') return '#6a1b9a';
-    return '#0062ff';
-  };
-
-  const roleColor = getRoleColor(role);
-
-  // Send message to AI server
-  const handleSend = async () => {
-    if (!input.trim()) return;
-
-    const userMessage = { id: Date.now(), from: 'user', text: input };
-    setMessages(prev => [...prev, userMessage]);
+    // Add user message to chat
+    const userMsg = { id: Date.now(), from: 'user', text };
+    setMessages(prev => [...prev, userMsg]);
     setInput('');
     setLoading(true);
+    setError('');
 
     try {
-      const response = await fetch('http://localhost:5001/api/ai/chat', {
+      // POST to Python FastAPI ai-service
+      const res = await fetch('http://localhost:8000/api/chat/message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: input, role: role })
+        body: JSON.stringify({
+          message: text,
+          user_id: String(patientId)
+        })
       });
 
-      const data = await response.json();
-      const aiMessage = {
-        id: Date.now() + 1,
-        from: 'ai',
-        text: data.reply || "Sorry, I couldn't process that. Try again!"
-      };
-      setMessages(prev => [...prev, aiMessage]);
+      if (!res.ok) {
+        throw new Error(`Server error: ${res.status}`);
+      }
 
-    } catch (error) {
+      const data = await res.json();
+      const botMsg = { id: Date.now() + 1, from: 'bot', text: data.reply };
+      setMessages(prev => [...prev, botMsg]);
+
+    } catch (err) {
+      console.error('AI Chat error:', err);
+      setError('Could not reach AI service. Make sure the Python server is running on port 8000.');
+      // Show error as a bot message too
       setMessages(prev => [...prev, {
         id: Date.now() + 1,
-        from: 'ai',
-        text: "⚠️ AI server is not reachable. Make sure it's running on port 5001!"
+        from: 'bot',
+        text: '⚠️ I am having trouble connecting right now. Please make sure the AI service is running and try again.',
+        isError: true
       }]);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
-  // Send on Enter key
-  const handleKeyPress = (e) => {
+  // Send on Enter key (Shift+Enter for new line)
+  const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      sendMessage();
     }
   };
 
+  // Suggested quick questions
+  const suggestions = [
+    'What medicines do I take today?',
+    'Can I take my medicine before meal?',
+    'What are common side effects?',
+    'When should I take my night dose?'
+  ];
+
   return (
-    <Box
+    <Paper
+      elevation={8}
       sx={{
-        position: 'fixed',
-        bottom: 24,
-        right: 24,
         width: 380,
         height: 520,
-        bgcolor: 'white',
-        borderRadius: 4,
-        boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: 9999,
-        border: `2px solid ${roleColor}20`
+        borderRadius: 4,
+        overflow: 'hidden',
+        border: '1px solid #e2e8f0'
       }}
     >
-      {/* Header */}
+      {/* ── Header ── */}
       <Box
         sx={{
+          bgcolor: '#2e7d32',
           p: 2,
-          borderRadius: '16px 16px 0 0',
-          background: `linear-gradient(135deg, ${roleColor}, ${roleColor}cc)`,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between'
         }}
       >
         <Box display="flex" alignItems="center" gap={1.5}>
-          <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)', width: 38, height: 38 }}>
-            <SmartToy sx={{ color: 'white', fontSize: 22 }} />
+          <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)', width: 36, height: 36 }}>
+            <SmartToy sx={{ color: 'white', fontSize: 20 }} />
           </Avatar>
           <Box>
-            <Typography fontWeight="bold" sx={{ color: 'white', fontSize: '0.95rem' }}>
-              MediCare AI
+            <Typography variant="subtitle2" fontWeight="bold" color="white">
+              MediCare AI Assistant
             </Typography>
-            <Box display="flex" alignItems="center" gap={0.5}>
-              <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#4caf50' }} />
-              <Typography sx={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.75rem' }}>
-                Online
-              </Typography>
-            </Box>
+            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+              {loading ? 'Typing...' : 'Online'}
+            </Typography>
           </Box>
         </Box>
-        <Box display="flex" alignItems="center" gap={1}>
-          <Chip
-            label={role}
-            size="small"
-            sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontWeight: 700, fontSize: '0.7rem' }}
-          />
-          {onClose && (
-            <IconButton onClick={onClose} sx={{ color: 'white', p: 0.5 }}>
-              <Close fontSize="small" />
-            </IconButton>
-          )}
-        </Box>
+        <IconButton onClick={onClose} size="small" sx={{ color: 'white' }}>
+          <Close fontSize="small" />
+        </IconButton>
       </Box>
 
-      {/* Messages */}
+      {/* ── Messages ── */}
       <Box
         sx={{
           flex: 1,
           overflowY: 'auto',
           p: 2,
+          bgcolor: '#f8fafc',
           display: 'flex',
           flexDirection: 'column',
-          gap: 1.5,
-          bgcolor: '#f8fafc'
+          gap: 1.5
         }}
       >
         {messages.map((msg) => (
@@ -170,86 +162,119 @@ const AiChat = ({ role = 'Patient', onClose }) => {
             alignItems="flex-end"
             gap={1}
           >
-            {/* AI Avatar */}
-            {msg.from === 'ai' && (
-              <Avatar sx={{ bgcolor: roleColor, width: 28, height: 28 }}>
+            {/* Bot avatar */}
+            {msg.from === 'bot' && (
+              <Avatar sx={{ bgcolor: '#2e7d32', width: 28, height: 28, flexShrink: 0 }}>
                 <SmartToy sx={{ fontSize: 16, color: 'white' }} />
               </Avatar>
             )}
 
-            {/* Message Bubble */}
-            <Paper
+            <Box
               sx={{
-                p: 1.5,
-                maxWidth: '75%',
+                maxWidth: '78%',
+                px: 2,
+                py: 1.2,
                 borderRadius: msg.from === 'user'
                   ? '16px 16px 4px 16px'
                   : '16px 16px 16px 4px',
-                bgcolor: msg.from === 'user' ? roleColor : 'white',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                border: msg.from === 'ai' ? '1px solid #e2e8f0' : 'none'
+                bgcolor: msg.from === 'user'
+                  ? '#2e7d32'
+                  : msg.isError ? '#ffebee' : 'white',
+                color: msg.from === 'user' ? 'white' : '#1e293b',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
+                border: msg.from === 'bot' ? '1px solid #e2e8f0' : 'none'
               }}
             >
               <Typography
                 variant="body2"
                 sx={{
-                  color: msg.from === 'user' ? 'white' : '#1e293b',
-                  fontSize: '0.85rem',
-                  lineHeight: 1.5,
-                  whiteSpace: 'pre-wrap'
+                  whiteSpace: 'pre-wrap',
+                  lineHeight: 1.6,
+                  fontSize: '0.82rem'
                 }}
               >
                 {msg.text}
               </Typography>
-            </Paper>
+            </Box>
 
-            {/* User Avatar */}
+            {/* User avatar */}
             {msg.from === 'user' && (
-              <Avatar sx={{ bgcolor: '#e2e8f0', width: 28, height: 28 }}>
-                <Person sx={{ fontSize: 16, color: '#64748b' }} />
+              <Avatar sx={{ bgcolor: '#0062ff', width: 28, height: 28, flexShrink: 0, fontSize: 12, fontWeight: 'bold' }}>
+                {patientName.charAt(0).toUpperCase()}
               </Avatar>
             )}
           </Box>
         ))}
 
-        {/* Loading */}
+        {/* Typing indicator */}
         {loading && (
           <Box display="flex" alignItems="center" gap={1}>
-            <Avatar sx={{ bgcolor: roleColor, width: 28, height: 28 }}>
+            <Avatar sx={{ bgcolor: '#2e7d32', width: 28, height: 28 }}>
               <SmartToy sx={{ fontSize: 16, color: 'white' }} />
             </Avatar>
-            <Paper sx={{ p: 1.5, borderRadius: '16px 16px 16px 4px', border: '1px solid #e2e8f0' }}>
-              <Box display="flex" gap={0.5} alignItems="center">
-                <CircularProgress size={12} sx={{ color: roleColor }} />
-                <Typography variant="caption" color="textSecondary">AI is thinking...</Typography>
-              </Box>
-            </Paper>
+            <Box
+              sx={{
+                px: 2, py: 1.2, bgcolor: 'white', borderRadius: '16px 16px 16px 4px',
+                border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 0.5
+              }}
+            >
+              <CircularProgress size={10} sx={{ color: '#2e7d32' }} />
+              <Typography variant="caption" color="textSecondary" sx={{ ml: 0.5 }}>
+                Thinking...
+              </Typography>
+            </Box>
           </Box>
         )}
 
         <div ref={bottomRef} />
       </Box>
 
-      {/* Input */}
+      {/* ── Quick suggestions (only shown at start) ── */}
+      {messages.length === 1 && (
+        <Box sx={{ px: 2, pb: 1, bgcolor: '#f8fafc', display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+          {suggestions.map((s, i) => (
+            <Button
+              key={i}
+              size="small"
+              variant="outlined"
+              onClick={() => { setInput(s); }}
+              sx={{
+                borderRadius: 4,
+                fontSize: '0.7rem',
+                py: 0.3,
+                px: 1,
+                borderColor: '#2e7d32',
+                color: '#2e7d32',
+                '&:hover': { bgcolor: '#e8f5e9' }
+              }}
+            >
+              {s}
+            </Button>
+          ))}
+        </Box>
+      )}
+
+      {/* ── Input area ── */}
       <Box
         sx={{
-          p: 2,
-          borderTop: '1px solid #e2e8f0',
+          p: 1.5,
           bgcolor: 'white',
-          borderRadius: '0 0 16px 16px',
+          borderTop: '1px solid #e2e8f0',
           display: 'flex',
-          gap: 1
+          gap: 1,
+          alignItems: 'flex-end'
         }}
       >
         <TextField
           fullWidth
-          size="small"
-          placeholder="Ask me anything..."
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyPress={handleKeyPress}
           multiline
           maxRows={3}
+          size="small"
+          placeholder="Ask about your medicines..."
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          disabled={loading}
           sx={{
             '& .MuiOutlinedInput-root': {
               borderRadius: 3,
@@ -257,24 +282,25 @@ const AiChat = ({ role = 'Patient', onClose }) => {
             }
           }}
         />
-        <Button
-          variant="contained"
-          onClick={handleSend}
-          disabled={loading || !input.trim()}
+        <IconButton
+          onClick={sendMessage}
+          disabled={!input.trim() || loading}
           sx={{
-            minWidth: 44,
-            width: 44,
-            height: 40,
+            bgcolor: input.trim() && !loading ? '#2e7d32' : '#e2e8f0',
+            color: input.trim() && !loading ? 'white' : '#94a3b8',
             borderRadius: 2,
-            bgcolor: roleColor,
-            p: 0,
-            '&:hover': { bgcolor: roleColor, opacity: 0.9 }
+            width: 40,
+            height: 40,
+            flexShrink: 0,
+            '&:hover': { bgcolor: '#1b5e20' },
+            transition: 'all 0.2s'
           }}
         >
-          <Send sx={{ fontSize: 18 }} />
-        </Button>
+          <Send fontSize="small" />
+        </IconButton>
       </Box>
-    </Box>
+
+    </Paper>
   );
 };
 

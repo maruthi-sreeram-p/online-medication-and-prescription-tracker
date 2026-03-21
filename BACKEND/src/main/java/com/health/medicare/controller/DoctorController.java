@@ -29,28 +29,30 @@ public class DoctorController {
     private final PatientRequestRepository patientRequestRepository;
     private final DoctorPatientRepository doctorPatientRepository;
 
-    // GET /api/doctors/{doctorId}/dashboard
     @GetMapping("/{doctorId}/dashboard")
     public ResponseEntity<DoctorResponseDto> getDashboard(@PathVariable Long doctorId) {
         return ResponseEntity.ok(doctorService.getDoctorDashboard(doctorId));
     }
 
-    // GET /api/doctors/{doctorId}/patients
     @GetMapping("/{doctorId}/patients")
     public ResponseEntity<List<PatientResponseDto>> getMyPatients(@PathVariable Long doctorId) {
         return ResponseEntity.ok(doctorService.getMyPatients(doctorId));
     }
 
-    // GET /api/doctors/{doctorId}/patients/{patientId}
     @GetMapping("/{doctorId}/patients/{patientId}")
     public ResponseEntity<PatientResponseDto> getPatientDetail(
-            @PathVariable Long doctorId,
-            @PathVariable Long patientId) {
+            @PathVariable Long doctorId, @PathVariable Long patientId) {
         return ResponseEntity.ok(doctorService.getPatientDetail(doctorId, patientId));
     }
 
-    // ✅ GET /api/doctors/{doctorId}/requests
-    // Returns PENDING patient requests with FULL patient info (name, age, gender, phone)
+    // ✅ NEW: PUT /api/doctors/{doctorId}/profile
+    @PutMapping("/{doctorId}/profile")
+    public ResponseEntity<DoctorResponseDto> updateProfile(
+            @PathVariable Long doctorId,
+            @RequestBody Map<String, String> updates) {
+        return ResponseEntity.ok(doctorService.updateProfile(doctorId, updates));
+    }
+
     @GetMapping("/{doctorId}/requests")
     public ResponseEntity<List<Map<String, Object>>> getPendingRequests(@PathVariable Long doctorId) {
         List<PatientRequest> pending = patientRequestRepository
@@ -61,7 +63,7 @@ public class DoctorController {
             Map<String, Object> map = new HashMap<>();
             map.put("id", req.getId());
             map.put("patientId", p.getId());
-            map.put("patientName", p.getName());          // ✅ Real patient name shown in UI
+            map.put("patientName", p.getName());
             map.put("email", p.getEmail());
             map.put("phone", p.getPhone() != null ? p.getPhone() : "N/A");
             map.put("age", p.getAge() != null ? p.getAge() : 0);
@@ -74,75 +76,55 @@ public class DoctorController {
         return ResponseEntity.ok(result);
     }
 
-    // ✅ PUT /api/doctors/{doctorId}/requests/{requestId}/accept
-    // Accepts patient request AND creates DoctorPatient connection
     @PutMapping("/{doctorId}/requests/{requestId}/accept")
     public ResponseEntity<String> acceptRequest(
-            @PathVariable Long doctorId,
-            @PathVariable Long requestId) {
+            @PathVariable Long doctorId, @PathVariable Long requestId) {
 
         PatientRequest req = patientRequestRepository.findById(requestId)
                 .orElseThrow(() -> new RuntimeException("Request not found"));
-
         req.setStatus("ACCEPTED");
         patientRequestRepository.save(req);
 
-        // Link doctor and patient in DoctorPatient table
         boolean alreadyLinked = doctorPatientRepository
                 .existsByDoctorIdAndPatientId(doctorId, req.getPatient().getId());
 
         if (!alreadyLinked) {
             Doctor doctor = doctorRepository.findById(doctorId)
                     .orElseThrow(() -> new RuntimeException("Doctor not found"));
-
             DoctorPatient link = DoctorPatient.builder()
-                    .doctor(doctor)
-                    .patient(req.getPatient())
-                    .status("ACTIVE")
+                    .doctor(doctor).patient(req.getPatient()).status("ACTIVE")
                     .build();
             doctorPatientRepository.save(link);
         }
-
-        return ResponseEntity.ok("Request accepted! Patient added to your list.");
+        return ResponseEntity.ok("Request accepted!");
     }
 
-    // ✅ PUT /api/doctors/{doctorId}/requests/{requestId}/reject
     @PutMapping("/{doctorId}/requests/{requestId}/reject")
     public ResponseEntity<String> rejectRequest(
-            @PathVariable Long doctorId,
-            @PathVariable Long requestId) {
-
+            @PathVariable Long doctorId, @PathVariable Long requestId) {
         PatientRequest req = patientRequestRepository.findById(requestId)
                 .orElseThrow(() -> new RuntimeException("Request not found"));
-
         req.setStatus("REJECTED");
         patientRequestRepository.save(req);
-
         return ResponseEntity.ok("Request rejected.");
     }
 
-    // GET /api/doctors/all — all doctors (for Find Doctors patient page)
     @GetMapping("/all")
     public ResponseEntity<List<DoctorResponseDto>> getAllDoctors() {
         List<Doctor> doctors = doctorRepository.findAll();
         List<DoctorResponseDto> result = doctors.stream().map(d ->
                 DoctorResponseDto.builder()
-                        .id(d.getId())
-                        .name(d.getName())
-                        .email(d.getEmail())
-                        .phone(d.getPhone())
+                        .id(d.getId()).name(d.getName())
+                        .email(d.getEmail()).phone(d.getPhone())
                         .specialization(d.getSpecialization())
                         .hospitalName(d.getHospitalName())
                         .status(d.getStatus())
-                        .totalPatients(0)
-                        .pendingRequests(0)
-                        .averageAdherence(0.0)
+                        .totalPatients(0).pendingRequests(0).averageAdherence(0.0)
                         .build()
         ).collect(Collectors.toList());
         return ResponseEntity.ok(result);
     }
 
-    // PUT /api/doctors/{doctorId}/approve
     @PutMapping("/{doctorId}/approve")
     public ResponseEntity<String> approveDoctor(@PathVariable Long doctorId) {
         Doctor doctor = doctorRepository.findById(doctorId)

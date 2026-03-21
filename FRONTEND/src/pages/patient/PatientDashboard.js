@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
   Box, Container, Typography, Grid, Card, CardContent,
-  Avatar, Chip, LinearProgress, Button, CircularProgress
+  Avatar, Chip, LinearProgress, Button, CircularProgress,
+  Alert, Snackbar
 } from '@mui/material';
 import { Medication, LocalHospital, TrendingUp, FamilyRestroom, Person } from '@mui/icons-material';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
@@ -13,10 +14,15 @@ const PatientDashboard = () => {
   const patientId = localStorage.getItem('userId');
   const patientName = localStorage.getItem('name');
 
-  const [showAI, setShowAI] = useState(false);
   const [loading, setLoading] = useState(true);
   const [todayMeds, setTodayMeds] = useState([]);
   const [prescriptions, setPrescriptions] = useState([]);
+  const [showAI, setShowAI] = useState(false);
+
+  // ✅ FIX: Proper error/success state — no silent catch
+  const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+  const [markingId, setMarkingId] = useState(null);
 
   const COLORS = ['#2e7d32', '#f57f17', '#d32f2f'];
 
@@ -41,17 +47,19 @@ const PatientDashboard = () => {
         dosage: t.dosage,
         slot: t.slot,
         time: `${t.timeStart || '07:00'} - ${t.timeEnd || '09:00'}`,
-        meal: t.meal ? (t.meal === 'before' ? 'Before Meal' : 'After Meal') : 'After Meal',
+        meal: t.meal === 'before' ? 'Before Meal' : t.meal === 'after' ? 'After Meal' : 'After Meal',
         status: t.status,
         markedAt: t.markedAt
           ? new Date(t.markedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
           : '-',
         icon: t.slot === 'MORNING' ? '🌅' : t.slot === 'AFTERNOON' ? '☀️' : '🌙',
-        trackingId: t.id,
-        prescriptionMedicineId: t.prescriptionMedicineId
+        prescriptionMedicineId: t.prescriptionMedicineId,
+        timeStart: t.timeStart,
+        timeEnd: t.timeEnd
       }));
       setTodayMeds(mapped);
     } catch (err) {
+      setErrorMsg('Failed to load today\'s medicines. Please refresh.');
       setTodayMeds([]);
     } finally {
       setLoading(false);
@@ -67,29 +75,37 @@ const PatientDashboard = () => {
     }
   };
 
+  // ✅ FIX: Only update UI after confirmed API success
+  // Backend decides ON_TIME vs LATE — refresh to get real status
   const handleMarkTaken = async (med) => {
+    if (markingId === med.id) return;
+    setMarkingId(med.id);
+    setErrorMsg('');
     try {
       await api.post(`/tracking/${patientId}/mark`, {
         prescriptionMedicineId: med.prescriptionMedicineId,
         slot: med.slot,
         status: 'ON_TIME'
       });
+      await fetchTodaySchedule();
+      setSuccessMsg(`✅ ${med.medicine} marked!`);
     } catch (err) {
-      // continue with optimistic update
+      const msg = err.response?.data?.error || err.response?.data?.message || '';
+      setErrorMsg(msg || `Failed to mark ${med.medicine}. Please try again.`);
+    } finally {
+      setMarkingId(null);
     }
-    const timeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-    setTodayMeds(todayMeds.map(m =>
-      m.id === med.id ? { ...m, status: 'ON_TIME', markedAt: timeStr } : m
-    ));
   };
 
+  // ✅ FIX: Added UPCOMING — slot hasn't opened yet
   const getStatusStyle = (status) => {
     switch (status) {
-      case 'ON_TIME': return { bg: '#e8f5e9', color: '#2e7d32', label: '✅ On Time' };
-      case 'LATE':    return { bg: '#fff8e1', color: '#f57f17', label: '⚠️ Late' };
-      case 'MISSED':  return { bg: '#ffebee', color: '#d32f2f', label: '❌ Missed' };
-      case 'PENDING': return { bg: '#f0f7ff', color: '#0062ff', label: '⏳ Pending' };
-      default:        return { bg: '#f8fafc', color: '#64748b', label: 'Unknown' };
+      case 'ON_TIME':  return { bg: '#e8f5e9', color: '#2e7d32', label: '✅ On Time' };
+      case 'LATE':     return { bg: '#fff8e1', color: '#f57f17', label: '⚠️ Late' };
+      case 'MISSED':   return { bg: '#ffebee', color: '#d32f2f', label: '❌ Missed' };
+      case 'PENDING':  return { bg: '#f0f7ff', color: '#0062ff', label: '⏳ Pending' };
+      case 'UPCOMING': return { bg: '#f1f5f9', color: '#94a3b8', label: '🔒 Upcoming' };
+      default:         return { bg: '#f8fafc', color: '#64748b', label: 'Unknown' };
     }
   };
 
@@ -106,29 +122,41 @@ const PatientDashboard = () => {
     { name: 'Missed',  value: missedCount }
   ];
 
-  // ✅ Get doctor + caretaker from most recent prescription
   const latestPrescription = prescriptions.length > 0 ? prescriptions[0] : null;
-  const myDoctor = latestPrescription
-    ? { name: latestPrescription.doctorName }
-    : null;
+  const myDoctor = latestPrescription ? { name: latestPrescription.doctorName } : null;
 
-  // ✅ Build caretaker display from prescription
   const getCaretakerDisplay = () => {
-    if (!latestPrescription) return { icon: <Person sx={{ color: '#0062ff', fontSize: 28 }} />, title: 'Self Monitoring', desc: 'You are managing your own medicines' };
+    if (!latestPrescription) return {
+      icon: <Person sx={{ color: '#0062ff', fontSize: 28 }} />,
+      title: 'Self Monitoring',
+      desc: 'You are managing your own medicines'
+    };
     const type = latestPrescription.caretakerType;
     const name = latestPrescription.caretakerName;
     if (type === 'FAMILY') {
-      let familyName = name;
-      try { /* name could be plain string */ familyName = name; } catch (e) {}
-      return { icon: <FamilyRestroom sx={{ color: '#0062ff', fontSize: 28 }} />, title: `Family: ${familyName || 'Member'}`, desc: latestPrescription.caretakerPhone || 'Monitoring your medicines' };
+      return {
+        icon: <FamilyRestroom sx={{ color: '#0062ff', fontSize: 28 }} />,
+        title: `Family: ${name || 'Member'}`,
+        desc: latestPrescription.caretakerPhone || 'Monitoring your medicines'
+      };
     }
     if (type === 'STAFF') {
       let shifts = {};
       try { shifts = JSON.parse(name || '{}'); } catch (e) {}
-      const shiftText = Object.entries(shifts).map(([k, v]) => v.name ? `${k}: ${v.name}` : null).filter(Boolean).join(', ');
-      return { icon: <LocalHospital sx={{ color: '#d32f2f', fontSize: 28 }} />, title: 'Medical Staff', desc: shiftText || 'Professional staff monitoring' };
+      const shiftText = Object.entries(shifts)
+        .map(([k, v]) => v.name ? `${k}: ${v.name}` : null)
+        .filter(Boolean).join(', ');
+      return {
+        icon: <LocalHospital sx={{ color: '#d32f2f', fontSize: 28 }} />,
+        title: 'Medical Staff',
+        desc: shiftText || 'Professional staff monitoring'
+      };
     }
-    return { icon: <Person sx={{ color: '#0062ff', fontSize: 28 }} />, title: 'Self Monitoring', desc: 'You are managing your own medicines' };
+    return {
+      icon: <Person sx={{ color: '#0062ff', fontSize: 28 }} />,
+      title: 'Self Monitoring',
+      desc: 'You are managing your own medicines'
+    };
   };
 
   const caretaker = getCaretakerDisplay();
@@ -145,13 +173,28 @@ const PatientDashboard = () => {
     <Box sx={{ py: 4, px: { xs: 2, md: 4 }, bgcolor: '#f8fafc', minHeight: '100vh' }}>
       <Container maxWidth="xl">
 
+        {/* Error & Success feedback */}
+        {errorMsg && (
+          <Alert severity="error" sx={{ mb: 3 }} onClose={() => setErrorMsg('')}>{errorMsg}</Alert>
+        )}
+        <Snackbar
+          open={!!successMsg}
+          autoHideDuration={3000}
+          onClose={() => setSuccessMsg('')}
+          anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        >
+          <Alert severity="success" onClose={() => setSuccessMsg('')} sx={{ fontWeight: 600 }}>
+            {successMsg}
+          </Alert>
+        </Snackbar>
+
         {/* HEADER */}
         <Box mb={4}>
           <Typography variant="h4" fontWeight={900} sx={{ color: '#1e293b' }}>
             {greeting()}, {patientName}! 👋
           </Typography>
           <Typography color="textSecondary">
-            Here's your medication schedule for today - {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
+            Here's your medication schedule for today — {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
           </Typography>
         </Box>
 
@@ -162,9 +205,7 @@ const PatientDashboard = () => {
               <CardContent sx={{ p: 3 }}>
                 <Typography variant="overline" fontWeight="bold" color="textSecondary">YOUR CARETAKER</Typography>
                 <Box display="flex" alignItems="center" gap={2} mt={1.5}>
-                  <Avatar sx={{ bgcolor: '#e3f2fd', width: 50, height: 50 }}>
-                    {caretaker.icon}
-                  </Avatar>
+                  <Avatar sx={{ bgcolor: '#e3f2fd', width: 50, height: 50 }}>{caretaker.icon}</Avatar>
                   <Box>
                     <Typography fontWeight="bold">{caretaker.title}</Typography>
                     <Typography variant="body2" color="textSecondary">{caretaker.desc}</Typography>
@@ -182,7 +223,7 @@ const PatientDashboard = () => {
                 {myDoctor ? (
                   <Box display="flex" alignItems="center" gap={2} mt={1.5}>
                     <Avatar sx={{ bgcolor: '#0062ff', width: 50, height: 50, fontWeight: 'bold' }}>
-                      {myDoctor.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0,2)}
+                      {myDoctor.name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
                     </Avatar>
                     <Box>
                       <Typography fontWeight="bold">{myDoctor.name}</Typography>
@@ -281,13 +322,18 @@ const PatientDashboard = () => {
                   <Box display="flex" flexDirection="column" gap={2}>
                     {todayMeds.map((med) => {
                       const style = getStatusStyle(med.status);
+                      const isMarking = markingId === med.id;
+                      const isMarkable = med.status === 'PENDING';
+                      const isUpcoming = med.status === 'UPCOMING';
                       return (
                         <Box
                           key={med.id}
                           sx={{
                             p: 2.5, borderRadius: 3,
                             border: `1px solid ${med.status === 'PENDING' ? '#e2e8f0' : style.bg}`,
-                            bgcolor: style.bg, transition: 'all 0.2s'
+                            bgcolor: style.bg,
+                            transition: 'all 0.2s',
+                            opacity: isUpcoming ? 0.55 : 1
                           }}
                         >
                           <Box display="flex" alignItems="center" gap={2}>
@@ -307,18 +353,26 @@ const PatientDashboard = () => {
                                 size="small"
                                 sx={{ bgcolor: 'white', color: style.color, fontWeight: 700, border: `1px solid ${style.color}`, mb: 1 }}
                               />
-                              {med.status === 'PENDING' && (
+                              {/* ✅ Only PENDING shows Mark Taken button */}
+                              {isMarkable && (
                                 <Box>
                                   <Button
                                     size="small" variant="contained"
                                     onClick={() => handleMarkTaken(med)}
+                                    disabled={isMarking}
                                     sx={{ bgcolor: '#2e7d32', fontWeight: 700, borderRadius: 2, fontSize: '0.7rem', '&:hover': { bgcolor: '#1b5e20' } }}
                                   >
-                                    ✅ Mark Taken
+                                    {isMarking ? '...' : '✅ Mark Taken'}
                                   </Button>
                                 </Box>
                               )}
-                              {med.status !== 'PENDING' && (
+                              {/* ✅ UPCOMING shows when it opens */}
+                              {isUpcoming && (
+                                <Typography variant="caption" sx={{ color: '#94a3b8', fontWeight: 600 }}>
+                                  Opens at {med.timeStart}
+                                </Typography>
+                              )}
+                              {!isMarkable && !isUpcoming && (
                                 <Typography variant="caption" color="textSecondary" display="block">
                                   Marked: {med.markedAt}
                                 </Typography>
@@ -356,7 +410,7 @@ const PatientDashboard = () => {
                 </CardContent>
               </Card>
 
-              {/* Reminder Card */}
+              {/* Next Reminder */}
               <Card sx={{ borderRadius: 4, boxShadow: 2, border: '1px solid #fff3e0', bgcolor: '#fffbf0' }}>
                 <CardContent sx={{ p: 3 }}>
                   <Typography variant="h6" fontWeight="bold" mb={2} sx={{ color: '#f57f17' }}>⏰ Next Reminder</Typography>
@@ -386,7 +440,7 @@ const PatientDashboard = () => {
         </Grid>
       </Container>
 
-      {/* AI Chat Button */}
+      {/* ✅ RESTORED: Floating AI Assistant button */}
       <Box sx={{ position: 'fixed', bottom: 24, right: 24, zIndex: 9999 }}>
         {showAI ? (
           <AiChat role="PATIENT" onClose={() => setShowAI(false)} />
@@ -405,6 +459,7 @@ const PatientDashboard = () => {
           </Button>
         )}
       </Box>
+
     </Box>
   );
 };

@@ -8,7 +8,10 @@ import com.health.medicare.repository.*;
 import com.health.medicare.service.PatientService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -19,8 +22,11 @@ public class PatientServiceImpl implements PatientService {
     private final DoctorRepository doctorRepository;
     private final PatientRequestRepository patientRequestRepository;
     private final PrescriptionRepository prescriptionRepository;
+    // ✅ FIX: Added so we can explicitly load medicines without relying on lazy collection
+    private final PrescriptionMedicineRepository prescriptionMedicineRepository;
 
     @Override
+    @Transactional
     public String sendRequestToDoctor(Long patientId, Long doctorId) {
         Patient patient = patientRepository.findById(patientId)
                 .orElseThrow(() -> new RuntimeException("Patient not found"));
@@ -34,22 +40,29 @@ public class PatientServiceImpl implements PatientService {
         }
 
         PatientRequest request = PatientRequest.builder()
-                .patient(patient)
-                .doctor(doctor)
-                .status("PENDING")
-                .build();
+                .patient(patient).doctor(doctor).status("PENDING").build();
         patientRequestRepository.save(request);
         return "Request sent successfully";
     }
 
+    /**
+     * ✅ FIX: @Transactional + explicit prescriptionMedicineRepository call.
+     * Without @Transactional, the Hibernate session closes after findByPatientIdOrderByCreatedAtDesc,
+     * so p.getMedicines() throws LazyInitializationException → caught silently → empty prescriptions shown.
+     */
     @Override
+    @Transactional(readOnly = true)
     public List<PrescriptionResponseDto> getMyPrescriptions(Long patientId) {
         List<Prescription> prescriptions = prescriptionRepository
                 .findByPatientIdOrderByCreatedAtDesc(patientId);
 
         return prescriptions.stream().map(p -> {
-            List<PrescriptionMedicineResponseDto> medicines = p.getMedicines()
-                    .stream().map(m -> PrescriptionMedicineResponseDto.builder()
+            // ✅ FIX: Explicit repo call — doesn't rely on lazy collection
+            List<PrescriptionMedicine> rawMeds =
+                    prescriptionMedicineRepository.findByPrescriptionId(p.getId());
+
+            List<PrescriptionMedicineResponseDto> medicines = rawMeds.stream()
+                    .map(m -> PrescriptionMedicineResponseDto.builder()
                             .id(m.getId())
                             .medicineId(m.getMedicine().getId())
                             .medicineName(m.getMedicine().getName())
@@ -86,19 +99,43 @@ public class PatientServiceImpl implements PatientService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public PatientResponseDto getMyProfile(Long patientId) {
         Patient p = patientRepository.findById(patientId)
                 .orElseThrow(() -> new RuntimeException("Patient not found"));
 
         return PatientResponseDto.builder()
-                .id(p.getId())
-                .name(p.getName())
-                .email(p.getEmail())
-                .phone(p.getPhone())
-                .age(p.getAge())
-                .gender(p.getGender())
-                .bloodGroup(p.getBloodGroup())
-                .status(p.getStatus())
+                .id(p.getId()).name(p.getName()).email(p.getEmail())
+                .phone(p.getPhone()).age(p.getAge()).gender(p.getGender())
+                .bloodGroup(p.getBloodGroup()).status(p.getStatus())
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public PatientResponseDto updateProfile(Long patientId, Map<String, Object> updates) {
+        Patient p = patientRepository.findById(patientId)
+                .orElseThrow(() -> new RuntimeException("Patient not found"));
+
+        if (updates.containsKey("name") && updates.get("name") != null)
+            p.setName(updates.get("name").toString());
+        if (updates.containsKey("phone") && updates.get("phone") != null)
+            p.setPhone(updates.get("phone").toString());
+        if (updates.containsKey("gender") && updates.get("gender") != null)
+            p.setGender(updates.get("gender").toString());
+        if (updates.containsKey("bloodGroup") && updates.get("bloodGroup") != null)
+            p.setBloodGroup(updates.get("bloodGroup").toString());
+        if (updates.containsKey("age") && updates.get("age") != null) {
+            try { p.setAge(Integer.parseInt(updates.get("age").toString())); }
+            catch (NumberFormatException ignored) {}
+        }
+
+        patientRepository.save(p);
+
+        return PatientResponseDto.builder()
+                .id(p.getId()).name(p.getName()).email(p.getEmail())
+                .phone(p.getPhone()).age(p.getAge()).gender(p.getGender())
+                .bloodGroup(p.getBloodGroup()).status(p.getStatus())
                 .build();
     }
 }

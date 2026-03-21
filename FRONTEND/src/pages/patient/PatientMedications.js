@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import {
   Box, Container, Typography, Card, CardContent,
-  Grid, Chip, Button, Divider, Avatar, CircularProgress
+  Grid, Chip, Button, Divider, Avatar, CircularProgress,
+  Alert, Snackbar
 } from '@mui/material';
-import { Medication } from '@mui/icons-material';
+import { Medication, LockClock } from '@mui/icons-material';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import api from '../../services/api';
 
@@ -12,8 +13,11 @@ const PatientMedications = () => {
   const patientId = localStorage.getItem('userId');
   const [loading, setLoading] = useState(true);
   const [medications, setMedications] = useState({ morning: [], afternoon: [], night: [] });
-  const [history, setHistory] = useState([]); // ✅ empty by default — no fake data
+  const [history, setHistory] = useState([]);
   const [rawTracking, setRawTracking] = useState([]);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+  const [markingId, setMarkingId] = useState(null);
 
   useEffect(() => {
     fetchTodayMeds();
@@ -29,13 +33,15 @@ const PatientMedications = () => {
           id: t.id,
           medicine: t.medicineName,
           dosage: t.dosage,
-          meal: t.meal ? (t.meal === 'before' ? 'Before Meal' : 'After Meal') : 'After Meal',
+          meal: t.meal === 'before' ? 'Before Meal' : t.meal === 'after' ? 'After Meal' : 'After Meal',
           status: t.status,
           markedAt: t.markedAt
             ? new Date(t.markedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
             : '-',
           prescriptionMedicineId: t.prescriptionMedicineId,
-          slot: t.slot
+          slot: t.slot,
+          timeStart: t.timeStart,
+          timeEnd: t.timeEnd
         };
         if (t.slot === 'MORNING') grouped.morning.push(entry);
         else if (t.slot === 'AFTERNOON') grouped.afternoon.push(entry);
@@ -44,7 +50,7 @@ const PatientMedications = () => {
       setMedications(grouped);
       setRawTracking(res.data || []);
     } catch (err) {
-      setMedications({ morning: [], afternoon: [], night: [] });
+      setErrorMsg('Failed to load today\'s medications. Please refresh.');
     } finally {
       setLoading(false);
     }
@@ -54,13 +60,7 @@ const PatientMedications = () => {
     try {
       const res = await api.get(`/tracking/${patientId}/history`);
       const data = res.data || [];
-
-      if (data.length === 0) {
-        setHistory([]); // ✅ no fake data
-        return;
-      }
-
-      // Group by date, last 7 days
+      if (data.length === 0) { setHistory([]); return; }
       const grouped = {};
       data.forEach(t => {
         const day = t.trackingDate || 'today';
@@ -69,61 +69,58 @@ const PatientMedications = () => {
         else if (t.status === 'LATE') grouped[day].late++;
         else if (t.status === 'MISSED') grouped[day].missed++;
       });
-
       const chartData = Object.keys(grouped).sort().slice(-7).map((date, i) => ({
-        ...grouped[date],
-        day: `Day ${i + 1}`
+        ...grouped[date], day: `Day ${i + 1}`
       }));
-
       setHistory(chartData);
     } catch (err) {
-      setHistory([]); // ✅ no fake data on error
+      setHistory([]);
     }
   };
 
   const handleMarkTaken = async (slot, med) => {
+    if (markingId === med.id) return;
+    setMarkingId(med.id);
+    setErrorMsg('');
     try {
       await api.post(`/tracking/${patientId}/mark`, {
         prescriptionMedicineId: med.prescriptionMedicineId,
         slot: med.slot,
         status: 'ON_TIME'
       });
+      // ✅ Refresh from backend — it decides ON_TIME vs LATE based on clock
+      await fetchTodayMeds();
+      setSuccessMsg(`✅ ${med.medicine} marked!`);
     } catch (err) {
-      // continue with optimistic update
+      const msg = err.response?.data?.error || err.response?.data?.message || '';
+      setErrorMsg(msg || `Failed to mark ${med.medicine}. Please try again.`);
+    } finally {
+      setMarkingId(null);
     }
-    const timeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-    setMedications(prev => ({
-      ...prev,
-      [slot]: prev[slot].map(m =>
-        m.id === med.id ? { ...m, status: 'ON_TIME', markedAt: timeStr } : m
-      )
-    }));
-    setRawTracking(prev => prev.map(t =>
-      t.id === med.id ? { ...t, status: 'ON_TIME' } : t
-    ));
   };
 
+  // ✅ FIX: UPCOMING = slot hasn't opened yet (greyed, no button)
   const getStatusStyle = (status) => {
     switch (status) {
-      case 'ON_TIME': return { bg: '#e8f5e9', color: '#2e7d32', label: '✅ On Time' };
-      case 'LATE':    return { bg: '#fff8e1', color: '#f57f17', label: '⚠️ Late' };
-      case 'MISSED':  return { bg: '#ffebee', color: '#d32f2f', label: '❌ Missed' };
-      case 'PENDING': return { bg: '#f0f7ff', color: '#0062ff', label: '⏳ Pending' };
-      default:        return { bg: '#f8fafc', color: '#64748b', label: 'Unknown' };
+      case 'ON_TIME':  return { bg: '#e8f5e9', color: '#2e7d32', label: '✅ On Time' };
+      case 'LATE':     return { bg: '#fff8e1', color: '#f57f17', label: '⚠️ Late' };
+      case 'MISSED':   return { bg: '#ffebee', color: '#d32f2f', label: '❌ Missed' };
+      case 'PENDING':  return { bg: '#f0f7ff', color: '#0062ff', label: '⏳ Pending' };
+      case 'UPCOMING': return { bg: '#f1f5f9', color: '#94a3b8', label: '🔒 Upcoming' };
+      default:         return { bg: '#f8fafc', color: '#64748b', label: 'Unknown' };
     }
   };
 
   const slotConfig = {
-    morning:   { label: '🌅 Morning',   time: '7:00 AM - 9:00 AM',  color: '#f57f17', bg: '#fff8e1', border: '#ffe082' },
-    afternoon: { label: '☀️ Afternoon', time: '12:00 PM - 1:00 PM', color: '#1565c0', bg: '#e3f2fd', border: '#90caf9' },
-    night:     { label: '🌙 Night',     time: '9:00 PM - 10:00 PM', color: '#4527a0', bg: '#ede7f6', border: '#b39ddb' }
+    morning:   { label: '🌅 Morning',   color: '#f57f17', bg: '#fff8e1', border: '#ffe082' },
+    afternoon: { label: '☀️ Afternoon', color: '#1565c0', bg: '#e3f2fd', border: '#90caf9' },
+    night:     { label: '🌙 Night',     color: '#4527a0', bg: '#ede7f6', border: '#b39ddb' }
   };
 
   const totalOnTime = rawTracking.filter(t => t.status === 'ON_TIME').length;
   const totalLate   = rawTracking.filter(t => t.status === 'LATE').length;
   const totalMissed = rawTracking.filter(t => t.status === 'MISSED').length;
-
-  const hasAnyMeds = medications.morning.length > 0 || medications.afternoon.length > 0 || medications.night.length > 0;
+  const hasAnyMeds  = medications.morning.length > 0 || medications.afternoon.length > 0 || medications.night.length > 0;
 
   if (loading) {
     return (
@@ -136,15 +133,17 @@ const PatientMedications = () => {
   return (
     <Box sx={{ py: 4, px: { xs: 2, md: 4 }, bgcolor: '#f8fafc', minHeight: '100vh' }}>
       <Container maxWidth="xl">
-
         <Box mb={4}>
           <Typography variant="h4" fontWeight={900} sx={{ color: '#1e293b' }}>My Medications</Typography>
           <Typography color="textSecondary">Track and mark your daily medicines</Typography>
         </Box>
 
-        <Grid container spacing={3}>
+        {errorMsg && <Alert severity="error" sx={{ mb: 3 }} onClose={() => setErrorMsg('')}>{errorMsg}</Alert>}
+        <Snackbar open={!!successMsg} autoHideDuration={3000} onClose={() => setSuccessMsg('')} anchorOrigin={{ vertical: 'top', horizontal: 'center' }}>
+          <Alert severity="success" onClose={() => setSuccessMsg('')} sx={{ fontWeight: 600 }}>{successMsg}</Alert>
+        </Snackbar>
 
-          {/* Medication Slots */}
+        <Grid container spacing={3}>
           <Grid item xs={12} lg={7}>
             {!hasAnyMeds ? (
               <Card sx={{ borderRadius: 4, boxShadow: 2, p: 6, textAlign: 'center' }}>
@@ -159,6 +158,7 @@ const PatientMedications = () => {
                 {Object.entries(medications).map(([slot, meds]) => {
                   if (meds.length === 0) return null;
                   const config = slotConfig[slot];
+                  const doneCount = meds.filter(m => !['PENDING','UPCOMING'].includes(m.status)).length;
                   return (
                     <Card key={slot} sx={{ borderRadius: 4, boxShadow: 2, border: `1px solid ${config.border}` }}>
                       <CardContent sx={{ p: 3 }}>
@@ -168,10 +168,12 @@ const PatientMedications = () => {
                         >
                           <Box>
                             <Typography fontWeight="bold" sx={{ color: config.color, fontSize: '1.1rem' }}>{config.label}</Typography>
-                            <Typography variant="caption" sx={{ color: config.color }}>{config.time}</Typography>
+                            <Typography variant="caption" sx={{ color: config.color }}>
+                              {meds[0]?.timeStart} – {meds[0]?.timeEnd}
+                            </Typography>
                           </Box>
                           <Chip
-                            label={`${meds.filter(m => m.status !== 'PENDING').length}/${meds.length} Done`}
+                            label={`${doneCount}/${meds.length} Done`}
                             size="small"
                             sx={{ bgcolor: 'white', color: config.color, fontWeight: 700, border: `1px solid ${config.color}` }}
                           />
@@ -180,36 +182,57 @@ const PatientMedications = () => {
                         <Box display="flex" flexDirection="column" gap={2}>
                           {meds.map((med) => {
                             const style = getStatusStyle(med.status);
+                            const isMarking = markingId === med.id;
+                            const isMarkable = med.status === 'PENDING';
+                            const isUpcoming = med.status === 'UPCOMING';
+
                             return (
                               <Box
                                 key={med.id}
                                 sx={{
                                   p: 2, borderRadius: 3, bgcolor: style.bg,
                                   border: `1px solid ${style.color}20`,
-                                  display: 'flex', alignItems: 'center', gap: 2
+                                  display: 'flex', alignItems: 'center', gap: 2,
+                                  opacity: isUpcoming ? 0.55 : 1
                                 }}
                               >
                                 <Avatar sx={{ bgcolor: style.color, width: 40, height: 40 }}>
-                                  <Medication sx={{ fontSize: 20 }} />
+                                  {isUpcoming
+                                    ? <LockClock sx={{ fontSize: 20 }} />
+                                    : <Medication sx={{ fontSize: 20 }} />
+                                  }
                                 </Avatar>
                                 <Box flex={1}>
                                   <Typography fontWeight="bold">{med.medicine}</Typography>
-                                  <Box display="flex" gap={1} mt={0.3}>
+                                  <Box display="flex" gap={1} mt={0.3} flexWrap="wrap">
                                     <Chip label={med.dosage} size="small" sx={{ bgcolor: '#e3f2fd', color: '#0062ff', fontWeight: 700 }} />
                                     <Chip label={med.meal} size="small" sx={{ bgcolor: '#f3e5f5', color: '#6a1b9a', fontWeight: 600 }} />
                                   </Box>
                                 </Box>
                                 <Box textAlign="right">
                                   <Chip label={style.label} size="small" sx={{ color: style.color, fontWeight: 700, mb: 0.5, display: 'block' }} />
-                                  {med.status === 'PENDING' ? (
+
+                                  {/* ✅ PENDING only → Mark Taken button visible */}
+                                  {isMarkable && (
                                     <Button
                                       size="small" variant="contained"
                                       onClick={() => handleMarkTaken(slot, med)}
+                                      disabled={isMarking}
                                       sx={{ bgcolor: '#2e7d32', fontWeight: 700, borderRadius: 2, fontSize: '0.7rem', '&:hover': { bgcolor: '#1b5e20' } }}
                                     >
-                                      Mark Taken
+                                      {isMarking ? '...' : 'Mark Taken'}
                                     </Button>
-                                  ) : (
+                                  )}
+
+                                  {/* ✅ UPCOMING → show when it opens, no button */}
+                                  {isUpcoming && (
+                                    <Typography variant="caption" sx={{ color: '#94a3b8', fontWeight: 600 }}>
+                                      Opens at {med.timeStart}
+                                    </Typography>
+                                  )}
+
+                                  {/* ON_TIME / LATE / MISSED → show marked time */}
+                                  {!isMarkable && !isUpcoming && (
                                     <Typography variant="caption" color="textSecondary">{med.markedAt}</Typography>
                                   )}
                                 </Box>
@@ -225,13 +248,10 @@ const PatientMedications = () => {
             )}
           </Grid>
 
-          {/* Weekly Chart */}
           <Grid item xs={12} lg={5}>
             <Card sx={{ borderRadius: 4, boxShadow: 2, border: '1px solid #e2e8f0' }}>
               <CardContent sx={{ p: 3 }}>
                 <Typography variant="h6" fontWeight="bold" mb={3}>📊 Weekly Tracking</Typography>
-
-                {/* ✅ Empty state when no tracking history — no fake Day 1-7 bars */}
                 {history.length === 0 ? (
                   <Box textAlign="center" py={5}>
                     <Typography color="textSecondary" fontWeight="bold">No tracking history yet</Typography>
@@ -248,32 +268,25 @@ const PatientMedications = () => {
                       <Tooltip />
                       <Legend />
                       <Bar dataKey="onTime" name="On Time" fill="#2e7d32" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="late" name="Late" fill="#f57f17" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="missed" name="Missed" fill="#d32f2f" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="late"   name="Late"    fill="#f57f17" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="missed" name="Missed"  fill="#d32f2f" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 )}
-
                 <Divider sx={{ my: 2 }} />
                 <Grid container spacing={1}>
-                  <Grid item xs={4}>
-                    <Box textAlign="center" sx={{ p: 1.5, bgcolor: '#e8f5e9', borderRadius: 2 }}>
-                      <Typography fontWeight={900} sx={{ color: '#2e7d32' }}>{totalOnTime}</Typography>
-                      <Typography variant="caption" sx={{ color: '#2e7d32' }}>On Time</Typography>
-                    </Box>
-                  </Grid>
-                  <Grid item xs={4}>
-                    <Box textAlign="center" sx={{ p: 1.5, bgcolor: '#fff8e1', borderRadius: 2 }}>
-                      <Typography fontWeight={900} sx={{ color: '#f57f17' }}>{totalLate}</Typography>
-                      <Typography variant="caption" sx={{ color: '#f57f17' }}>Late</Typography>
-                    </Box>
-                  </Grid>
-                  <Grid item xs={4}>
-                    <Box textAlign="center" sx={{ p: 1.5, bgcolor: '#ffebee', borderRadius: 2 }}>
-                      <Typography fontWeight={900} sx={{ color: '#d32f2f' }}>{totalMissed}</Typography>
-                      <Typography variant="caption" sx={{ color: '#d32f2f' }}>Missed</Typography>
-                    </Box>
-                  </Grid>
+                  {[
+                    { count: totalOnTime, label: 'On Time', bg: '#e8f5e9', color: '#2e7d32' },
+                    { count: totalLate,   label: 'Late',    bg: '#fff8e1', color: '#f57f17' },
+                    { count: totalMissed, label: 'Missed',  bg: '#ffebee', color: '#d32f2f' }
+                  ].map(s => (
+                    <Grid item xs={4} key={s.label}>
+                      <Box textAlign="center" sx={{ p: 1.5, bgcolor: s.bg, borderRadius: 2 }}>
+                        <Typography fontWeight={900} sx={{ color: s.color }}>{s.count}</Typography>
+                        <Typography variant="caption" sx={{ color: s.color }}>{s.label}</Typography>
+                      </Box>
+                    </Grid>
+                  ))}
                 </Grid>
               </CardContent>
             </Card>

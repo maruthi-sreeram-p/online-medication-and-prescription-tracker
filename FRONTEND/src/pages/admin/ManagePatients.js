@@ -1,38 +1,57 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box, Container, Typography, Card, CardContent,
   Avatar, TextField, InputAdornment, Chip,
   Table, TableBody, TableCell, TableContainer,
-  TableHead, TableRow, Paper, Button
+  TableHead, TableRow, Paper, Button, CircularProgress, Alert
 } from '@mui/material';
 import { Search, Block } from '@mui/icons-material';
+import api from '../../services/api';
 
 const ManagePatients = () => {
 
-  const [patients, setPatients] = useState([
-    { id: 1, name: 'Namitha Ganji', email: 'namitha@gmail.com', age: 25, gender: 'Female', doctor: 'Dr. Ram Kumar', adherence: 85, status: 'ACTIVE' },
-    { id: 2, name: 'Sree Ram', email: 'sreer@gmail.com', age: 28, gender: 'Male', doctor: 'Dr. Ram Kumar', adherence: 72, status: 'ACTIVE' },
-    { id: 3, name: 'Pramodini', email: 'pramo@gmail.com', age: 24, gender: 'Female', doctor: 'Dr. Sneha Reddy', adherence: 90, status: 'ACTIVE' },
-    { id: 4, name: 'Maruthi Sreeram', email: 'maruthi@gmail.com', age: 26, gender: 'Male', doctor: 'Dr. Ram Kumar', adherence: 65, status: 'INACTIVE' },
-  ]);
-
+  const [patients, setPatients] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [error, setError] = useState('');
 
-  const toggleStatus = (id) => {
-    setPatients(patients.map(p =>
-      p.id === id ? { ...p, status: p.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' } : p
-    ));
+  useEffect(() => {
+    fetchPatients();
+  }, []);
+
+  const fetchPatients = async () => {
+    try {
+      const res = await api.get('/admin/patients');
+      setPatients(res.data);
+    } catch (err) {
+      setError('Failed to load patients.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleStatus = async (id, currentStatus) => {
+    try {
+      await api.put(`/admin/patients/${id}/toggle-status`);
+      setPatients(patients.map(p =>
+        p.id === id ? { ...p, status: currentStatus === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' } : p
+      ));
+    } catch (err) {
+      setError('Failed to update patient status.');
+    }
   };
 
   const filtered = patients.filter(p =>
-    p.name.toLowerCase().includes(searchTerm.toLowerCase())
+    (p.name || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const getAdherenceColor = (pct) => {
-    if (pct >= 80) return '#2e7d32';
-    if (pct >= 50) return '#f57f17';
-    return '#d32f2f';
-  };
+  if (loading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
+        <CircularProgress sx={{ color: '#6a1b9a' }} />
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ py: 4, px: { xs: 2, md: 4 }, bgcolor: '#f8fafc', minHeight: '100vh' }}>
@@ -42,6 +61,8 @@ const ManagePatients = () => {
           <Typography variant="h4" fontWeight={900} sx={{ color: '#1e293b' }}>Manage Patients</Typography>
           <Typography color="textSecondary">View and manage all registered patients</Typography>
         </Box>
+
+        {error && <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>{error}</Alert>}
 
         <TextField
           fullWidth placeholder="Search patients..."
@@ -58,19 +79,25 @@ const ManagePatients = () => {
                 <TableRow>
                   <TableCell><strong>Patient</strong></TableCell>
                   <TableCell><strong>Age/Gender</strong></TableCell>
-                  <TableCell><strong>Doctor</strong></TableCell>
-                  <TableCell><strong>Adherence</strong></TableCell>
+                  <TableCell><strong>Blood Group</strong></TableCell>
+                  <TableCell><strong>Phone</strong></TableCell>
                   <TableCell><strong>Status</strong></TableCell>
                   <TableCell><strong>Action</strong></TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {filtered.map((patient) => (
+                {filtered.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                      <Typography color="textSecondary">No patients found.</Typography>
+                    </TableCell>
+                  </TableRow>
+                ) : filtered.map((patient) => (
                   <TableRow key={patient.id} hover>
                     <TableCell>
                       <Box display="flex" alignItems="center" gap={1.5}>
                         <Avatar sx={{ bgcolor: '#6a1b9a', width: 38, height: 38, fontWeight: 'bold' }}>
-                          {patient.name.charAt(0)}
+                          {(patient.name || 'P').charAt(0)}
                         </Avatar>
                         <Box>
                           <Typography fontWeight="bold" sx={{ fontSize: '0.9rem' }}>{patient.name}</Typography>
@@ -80,13 +107,13 @@ const ManagePatients = () => {
                     </TableCell>
                     <TableCell>{patient.age} yrs • {patient.gender}</TableCell>
                     <TableCell>
-                      <Typography variant="body2" sx={{ color: '#0062ff', fontWeight: 600 }}>{patient.doctor}</Typography>
+                      <Chip
+                        label={patient.bloodGroup || 'N/A'}
+                        size="small"
+                        sx={{ bgcolor: '#e3f2fd', color: '#0062ff', fontWeight: 700 }}
+                      />
                     </TableCell>
-                    <TableCell>
-                      <Typography fontWeight={900} sx={{ color: getAdherenceColor(patient.adherence) }}>
-                        {patient.adherence}%
-                      </Typography>
-                    </TableCell>
+                    <TableCell>{patient.phone || 'N/A'}</TableCell>
                     <TableCell>
                       <Chip
                         label={patient.status}
@@ -102,7 +129,7 @@ const ManagePatients = () => {
                       <Button
                         size="small" variant="outlined"
                         startIcon={<Block />}
-                        onClick={() => toggleStatus(patient.id)}
+                        onClick={() => toggleStatus(patient.id, patient.status)}
                         sx={{
                           borderColor: patient.status === 'ACTIVE' ? '#d32f2f' : '#2e7d32',
                           color: patient.status === 'ACTIVE' ? '#d32f2f' : '#2e7d32',
