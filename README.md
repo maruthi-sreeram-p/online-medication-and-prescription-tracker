@@ -147,7 +147,7 @@ Make sure your MySQL server is running on port `3306`.
 Create a database named `medicare_db`:
 
 ```sql
-CREATE DATABASE medicare_db;
+CREATE DATABASE medicare_db_main;
 ```
 
 All 11 tables are auto-created by Hibernate when Spring Boot starts.
